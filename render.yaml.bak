@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: straten-lead-intelligence-api
+    runtime: node
+    buildCommand: npm install && npx prisma generate
+    startCommand: npx prisma migrate deploy && npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: KENYA_ONLY
+        value: "true"
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: AI_ENDPOINT
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false

@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum PlanTier {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum Confidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum EvidenceKind {
+  CONFIRMED
+  OBSERVED
+  USER_PROVIDED
+  AI_SUGGESTION
+}
+
+enum OutreachStatus {
+  DRAFTED
+  SENT
+  REPLIED
+  FOLLOW_UP_DUE
+  CLOSED
+}
+
+enum DiscoveryStatus {
+  NEW
+  APPROVED
+  REJECTED
+  DUPLICATE
+}
+
+enum VerificationStatus {
+  VERIFIED
+  NEEDS_REVIEW
+  REJECTED
+}
+
+enum DuplicateStatus {
+  NONE
+  EXISTING_PROSPECT
+  DISCOVERY_INBOX
+}
+
+model Organization {
+  id                    String              @id @default(cuid())
+  name                  String
+  slug                  String              @unique
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  // Subscription & Billing details
+  stripeCustomerId      String?             @unique
+  stripeSubscriptionId  String?             @unique
+  plan                  PlanTier            @default(GROWTH)
+  subscriptionStatus    SubscriptionStatus  @default(TRIALING)
+  trialEndsAt           DateTime?
+  currentPeriodEnd      DateTime?
+  cancelAtPeriodEnd     Boolean             @default(false)
+
+  // Monthly Usage Quota tracking
+  monthlyLeadQuota      Int                 @default(1500)
+  leadsUsedThisMonth     Int                 @default(0)
+  quotaPeriodStart      DateTime            @default(now())
+
+  // Company Profile & Industry ICP Targeting
+  industry              String?             @default("Technology & SaaS")
+  companyDescription   String?
+  targetIndustries      String?             @default("[\"Tech & SaaS\", \"Financial & Professional Services\", \"Real Estate & Property\"]")
+  targetLocations       String?             @default("Nairobi, London, Global")
+  valueProposition      String?
+
+  // Relations
+  members               OrganizationMember[]
+  prospects             Prospect[]
+  discoveryLeads        DiscoveryLead[]
+  invites               OrganizationInvite[]
+  emailLogs             EmailLog[]
+
+  @@index([subscriptionStatus])
+}
+
+model OrganizationMember {
+  id              String        @id @default(cuid())
+  role            OrgRole       @default(MEMBER)
+  joinedAt        DateTime      @default(now())
+
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model OrganizationInvite {
+  id              String        @id @default(cuid())
+  email           String
+  role            OrgRole       @default(MEMBER)
+  token           String        @unique
+  expiresAt       DateTime
+  createdAt       DateTime      @default(now())
+
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+}
+
+model User {
+  id              String               @id @default(cuid())
+  email           String               @unique
+  passwordHash    String
+  name            String?
+  role            Role                 @default(MEMBER)
+  createdAt       DateTime             @default(now())
+
+  memberships     OrganizationMember[]
+  prospects       Prospect[]           @relation("OwnerProspects")
+  discoveryLeads  DiscoveryLead[]
+}
+
+model Prospect {
+  id              String            @id @default(cuid())
+  company         String
+  contactName     String?
+  email           String?
+  phone           String?
+  website         String?
+  location        String?
+  country         String            @default("Global")
+  score           Int               @default(0)
+  qualification   String?
+  researchStatus  String            @default("idle")
+  aiAnalysis      Json?
+  caseData        Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  ownerId         String
+  owner           User              @relation("OwnerProspects", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  evidence        Evidence[]
+  sequences       OutreachSequence[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+}
+
+model Evidence {
+  id          String        @id @default(cuid())
+  finding     String
+  source      String
+  sourceUrl   String?
+  snippet     String?
+  collectedAt DateTime      @default(now())
+  confidence  Confidence    @default(MEDIUM)
+  kind        EvidenceKind  @default(OBSERVED)
+  prospectId  String
+  prospect    Prospect      @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+}
+
+model OutreachSequence {
+  id          String         @id @default(cuid())
+  name        String         @default("14-Day Outreach Sequence")
+  status      OutreachStatus @default(DRAFTED)
+  createdAt   DateTime       @default(now())
+  prospectId  String
+  prospect    Prospect       @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  steps       OutreachStep[]
+}
+
+model OutreachStep {
+  id          String         @id @default(cuid())
+  day         Int
+  channel     String
+  subject     String?
+  body        String
+  status      OutreachStatus @default(DRAFTED)
+  dueAt       DateTime?
+  sequenceId  String
+  sequence    OutreachSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+}
+
+model DiscoveryLead {
+  id                  String              @id @default(cuid())
+  companyName         String
+  website             String?
+  domain              String?
+  location            String?
+  country             String              @default("Global")
+  companyType         String?
+  discoverySource     String
+  sourceUrl           String?
+  sourceSnippet       String?
+  contactEmail        String?
+  contactPhone        String?
+  searchQuery         String?
+  verificationStatus  VerificationStatus  @default(NEEDS_REVIEW)
+  verificationReason  String?
+  verifiedAt          DateTime?
+  duplicateStatus     DuplicateStatus     @default(NONE)
+  duplicateProspectId String?
+  duplicateReason     String?
+  status              DiscoveryStatus     @default(NEW)
+  discoveredAt        DateTime            @default(now())
+  approvedAt          DateTime?
+  rejectedAt          DateTime?
+  prospectId          String?
+
+  ownerId             String
+  owner               User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  organizationId      String?
+  organization        Organization?       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, domain])
+  @@index([organizationId])
+  @@index([ownerId, status])
+  @@index([ownerId, companyName])
+}
+
+model EmailLog {
+  id              String        @id @default(cuid())
+  email           String
+  template        String
+  subject         String
+  status          String        @default("SENT")
+  metadata        Json?
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+
+  @@index([email])
+  @@index([organizationId, template])
+  @@index([createdAt])
+}
